@@ -37,6 +37,8 @@ from test_framework.util import (
 # P2PInterface is a class containing callbacks to be executed when a P2P
 # message is received from the node-under-test. Subclass P2PInterface and
 # override the on_*() methods if you need custom behaviour.
+
+
 class BaseNode(P2PInterface):
     def __init__(self):
         """Initialize the P2PInterface
@@ -63,6 +65,7 @@ class BaseNode(P2PInterface):
     def on_inv(self, message):
         """Override the standard on_inv callback"""
         pass
+
 
 def custom_function():
     """Do some custom behaviour
@@ -148,7 +151,10 @@ class ExampleTest(BitcoinTestFramework):
         peer_messaging = self.nodes[0].add_p2p_connection(BaseNode())
 
         # Generating a block on one of the nodes will get us out of IBD
-        blocks = [int(self.generate(self.nodes[0], sync_fun=lambda: self.sync_all(self.nodes[0:2]), nblocks=1)[0], 16)]
+        blocks = [
+            int(self.generate(self.nodes[0], sync_fun=lambda: self.sync_all(
+                self.nodes[0:2]), nblocks=1)[0], 16)
+        ]
 
         # Notice above how we called an RPC by calling a method with the same
         # name on the node object. Notice also how we used a keyword argument
@@ -169,7 +175,8 @@ class ExampleTest(BitcoinTestFramework):
 
         self.log.info("Create some blocks")
         self.tip = int(self.nodes[0].getbestblockhash(), 16)
-        self.block_time = self.nodes[0].getblock(self.nodes[0].getbestblockhash())['time'] + 1
+        self.block_time = self.nodes[0].getblock(
+            self.nodes[0].getbestblockhash())['time'] + 1
 
         height = self.nodes[0].getblockcount()
 
@@ -177,7 +184,8 @@ class ExampleTest(BitcoinTestFramework):
             # Use the blocktools functionality to manually build a block.
             # Calling the generate() rpc is easier, but this allows us to exactly
             # control the blocks and transactions.
-            block = create_block(self.tip, create_coinbase(height+1), self.block_time)
+            block = create_block(
+                self.tip, create_coinbase(height+1), self.block_time)
             block.solve()
             block_message = msg_block(block)
             # Send message is used to send a P2P message to the node over our P2PInterface
@@ -187,7 +195,8 @@ class ExampleTest(BitcoinTestFramework):
             self.block_time += 1
             height += 1
 
-        self.log.info("Wait for node1 to reach current tip (height 11) using RPC")
+        self.log.info(
+            "Wait for node1 to reach current tip (height 11) using RPC")
         self.nodes[1].waitforblockheight(11)
 
         self.log.info("Connect node2 and node1")
@@ -205,12 +214,14 @@ class ExampleTest(BitcoinTestFramework):
 
         getdata_request = msg_getdata()
         for block in blocks:
+
             getdata_request.inv.append(CInv(MSG_BLOCK, block))
         peer_receiving.send_message(getdata_request)
 
         # wait_until() will loop until a predicate condition is met. Use it to test properties of the
         # P2PInterface objects.
-        peer_receiving.wait_until(lambda: sorted(blocks) == sorted(list(peer_receiving.block_receive_map.keys())), timeout=5)
+        peer_receiving.wait_until(lambda: sorted(blocks) == sorted(
+            list(peer_receiving.block_receive_map.keys())), timeout=5)
 
         self.log.info("Check that each block was received only once")
         # The network thread uses a global lock on data access to the P2PConnection objects when sending and receiving
@@ -219,6 +230,30 @@ class ExampleTest(BitcoinTestFramework):
         with p2p_lock:
             for block in peer_receiving.block_receive_map.values():
                 assert_equal(block, 1)
+
+        self.log.info("Node 1 to mine another block")
+
+        extra_block = int(self.generate(self.nodes[1], sync_fun=lambda: self.sync_all(
+            self.nodes[0:2]), nblocks=1)[0], 16)
+
+        self.log.info("Extra block: %s" % extra_block)
+
+        # peer_receiving.wait_until(lambda: sorted(blocks) == sorted(
+        #     list(peer_receiving.block_receive_map.keys())), timeout=5)
+        self.log.info("check if node 2 has the extra block")
+        peer_receiving.wait_until(
+            lambda: peer_receiving.block_receive_map[extra_block] != 1, timeout=5)
+
+        self.log.info("Syncing nodes")
+        self.sync_all()
+
+        extra_get_data = msg_getdata()
+        extra_get_data.inv.append(CInv(MSG_BLOCK, extra_block))
+        peer_receiving.send_message(extra_get_data)
+
+        self.log.info("Check that the extra block was received only once")
+        peer_receiving.wait_until(
+            lambda: peer_receiving.block_receive_map[extra_block] == 1, timeout=5)
 
 
 if __name__ == '__main__':
